@@ -1,5 +1,6 @@
 name: Deploy Analytics Dashboard to GitHub Pages
 
+# Re-registered 2026-08-05 after enabling Actions + switching Pages source.
 on:
   push:
     branches: [main]
