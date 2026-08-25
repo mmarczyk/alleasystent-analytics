@@ -101,6 +101,24 @@
     .intent-bar-bg { background: var(--bg3); border-radius: 4px; height: 8px; overflow: hidden; }
     .intent-bar-fill { height: 100%; border-radius: 4px; background: var(--primary); transition: width .4s; }
 
+    /* ── QUERY PERFORMANCE BY PHASE ── */
+    .perf-legend { display: flex; flex-wrap: wrap; gap: .9rem; margin-bottom: 1.1rem; }
+    .perf-legend-item { display: flex; align-items: center; gap: .35rem; font-size: .76rem; color: var(--muted); }
+    .perf-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+    .perf-list { display: flex; flex-direction: column; gap: .9rem; }
+    .perf-row + .perf-row { padding-top: .9rem; border-top: 1px solid var(--border); }
+    .perf-top {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: .5rem; margin-bottom: .35rem;
+    }
+    .perf-name { font-size: .88rem; }
+    .perf-stats { font-size: .78rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .perf-bar-bg {
+      display: flex; background: var(--bg3); border-radius: 4px;
+      height: 16px; overflow: hidden;
+    }
+    .perf-seg { height: 100%; transition: width .4s; }
+
     /* ── RECENT QUERIES ── */
     .query-list { display: flex; flex-direction: column; gap: .5rem; }
     .query-item {
@@ -233,6 +251,12 @@
     <div class="section">
       <div class="section-title">Rozkład intencji</div>
       <div class="card" id="panel-intents"><div class="loading"><span class="spinner"></span> Ładowanie…</div></div>
+    </div>
+
+    <!-- Query performance by phase -->
+    <div class="section">
+      <div class="section-title">Czas przetwarzania wg fazy</div>
+      <div class="card" id="panel-perf"><div class="loading"><span class="spinner"></span> Ładowanie…</div></div>
     </div>
 
     <!-- Recent queries -->
@@ -369,6 +393,13 @@
   // ── Main load ─────────────────────────────────────────────────────────────
   async function refresh() {
     document.getElementById('btn-refresh').disabled = true;
+    await Promise.all([loadMain(), loadPerf()]);
+    document.getElementById('last-updated').textContent =
+      'Odświeżono: ' + new Date().toLocaleTimeString('pl-PL');
+    document.getElementById('btn-refresh').disabled = false;
+  }
+
+  async function loadMain() {
     try {
       const res = await apiFetch('/admin/analytics');
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -377,13 +408,9 @@
       renderIntents(data.intents || []);
       renderRecent(data.recent || []);
       renderGaps(data.gaps || []);
-      document.getElementById('last-updated').textContent =
-        'Odświeżono: ' + new Date().toLocaleTimeString('pl-PL');
     } catch (e) {
       document.getElementById('panel-intents').innerHTML =
         '<div class="error-msg">Błąd ładowania: ' + esc(e.message) + '</div>';
-    } finally {
-      document.getElementById('btn-refresh').disabled = false;
     }
   }
 
@@ -450,6 +477,70 @@
         </div>
       `).join('') +
       '</div>';
+  }
+
+  // ── Query performance by phase ───────────────────────────────────────────
+  // Backend derives the label from which Allegro tool ran (e.g. "Nowe
+  // zamówienia" vs "Zamówienia" vs "Faktury do wystawienia") and the phases
+  // from the actual request pipeline — see label_for_perf()/get_perf_stats()
+  // in services/analytics_service.py (alleasystent repo).
+  const PHASE_COLORS = ['#64748b', '#f59e0b', '#94a3b8', '#8b5cf6', '#10b981', '#ec4899', '#38bdf8'];
+
+  function fmtMs(ms) {
+    if (ms >= 1000) return (ms / 1000).toFixed(1) + 's';
+    return Math.round(ms) + 'ms';
+  }
+
+  async function loadPerf() {
+    const el = document.getElementById('panel-perf');
+    try {
+      const res = await apiFetch('/admin/analytics/perf');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      renderPerf(await res.json());
+    } catch (e) {
+      el.innerHTML = '<div class="error-msg">Błąd ładowania: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function renderPerf(data) {
+    const el = document.getElementById('panel-perf');
+    const phaseKeys = data.phase_keys || [];
+    const phaseLabels = data.phase_labels || [];
+    const series = data.series || [];
+    if (!series.length) {
+      el.innerHTML = '<div class="empty">Brak danych — pojawią się po kilku zapytaniach.</div>';
+      return;
+    }
+
+    const legend = '<div class="perf-legend">' +
+      phaseKeys.map((k, i) => `
+        <span class="perf-legend-item">
+          <span class="perf-swatch" style="background:${PHASE_COLORS[i % PHASE_COLORS.length]}"></span>
+          ${esc(phaseLabels[i])}
+        </span>
+      `).join('') +
+      '</div>';
+
+    const rows = series.map(s => {
+      const segs = phaseKeys.map((k, i) => {
+        const ms = s.phases[k] || 0;
+        const pct = s.avg_total_ms > 0 ? (ms / s.avg_total_ms * 100) : 0;
+        if (pct <= 0) return '';
+        const color = PHASE_COLORS[i % PHASE_COLORS.length];
+        return `<div class="perf-seg" style="width:${pct}%;background:${color}" title="${esc(phaseLabels[i])}: ${fmtMs(ms)}"></div>`;
+      }).join('');
+      return `
+        <div class="perf-row">
+          <div class="perf-top">
+            <span class="perf-name">${esc(s.label)}</span>
+            <span class="perf-stats">${fmtMs(s.avg_total_ms)} śr. · ${s.count}×</span>
+          </div>
+          <div class="perf-bar-bg">${segs}</div>
+        </div>
+      `;
+    }).join('');
+
+    el.innerHTML = legend + '<div class="perf-list">' + rows + '</div>';
   }
 
   // ── LLM Analysis ──────────────────────────────────────────────────────────
