@@ -73,6 +73,16 @@
       font-size: .72rem; text-transform: uppercase; letter-spacing: .8px;
       color: var(--muted); margin-bottom: .75rem; font-weight: 700;
     }
+    .section-title-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: .75rem; margin-bottom: .75rem;
+    }
+    .section-title-row .section-title { margin-bottom: 0; }
+    .select-sm {
+      background: var(--bg3); color: var(--text); border: 1px solid var(--border);
+      border-radius: 6px; padding: .3rem .55rem; font-size: .78rem; cursor: pointer;
+    }
+    .select-sm:focus { outline: 1px solid var(--accent); }
     .card {
       background: var(--card); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 1.25rem;
@@ -255,7 +265,15 @@
 
     <!-- Query performance by phase -->
     <div class="section">
-      <div class="section-title">Czas przetwarzania wg fazy</div>
+      <div class="section-title-row">
+        <div class="section-title">Czas przetwarzania wg fazy</div>
+        <select class="select-sm" id="perf-window" onchange="loadPerf()">
+          <option value="1">Ostatnia godzina</option>
+          <option value="24" selected>Ostatnie 24h</option>
+          <option value="168">Ostatnie 7 dni</option>
+          <option value="">Cała historia</option>
+        </select>
+      </div>
       <div class="card" id="panel-perf"><div class="loading"><span class="spinner"></span> Ładowanie…</div></div>
     </div>
 
@@ -491,10 +509,22 @@
     return Math.round(ms) + 'ms';
   }
 
+  // Full stored history can span days, so an unfiltered average keeps
+  // reflecting stale requests for a while after a latency fix ships —
+  // the window selector lets you check a fix's real, current effect
+  // instead of waiting for enough new queries to outweigh the old ones.
+  function perfWindowHours() {
+    const el = document.getElementById('perf-window');
+    return el ? el.value : '24';
+  }
+
   async function loadPerf() {
     const el = document.getElementById('panel-perf');
+    el.innerHTML = '<div class="loading"><span class="spinner"></span> Ładowanie…</div>';
     try {
-      const res = await apiFetch('/admin/analytics/perf');
+      const hours = perfWindowHours();
+      const qs = hours ? '?hours=' + encodeURIComponent(hours) : '';
+      const res = await apiFetch('/admin/analytics/perf' + qs);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       renderPerf(await res.json());
     } catch (e) {
