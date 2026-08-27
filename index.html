@@ -112,6 +112,11 @@
     .intent-bar-fill { height: 100%; border-radius: 4px; background: var(--primary); transition: width .4s; }
 
     /* ── QUERY PERFORMANCE BY PHASE ── */
+    .perf-cold-note {
+      display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: var(--text);
+      background: rgba(245, 158, 11, .1); border: 1px solid rgba(245, 158, 11, .3);
+      border-radius: 8px; padding: .6rem .85rem; margin-bottom: 1.1rem; line-height: 1.5;
+    }
     .perf-legend { display: flex; flex-wrap: wrap; gap: .9rem; margin-bottom: 1.1rem; }
     .perf-legend-item { display: flex; align-items: center; gap: .35rem; font-size: .76rem; color: var(--muted); }
     .perf-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
@@ -532,17 +537,36 @@
     }
   }
 
+  // A Cloud Run cold start (container boot, --min-instances=0) happens
+  // entirely before the backend's StageTimer starts, so it can't show up as
+  // its own phase — this compares cold- vs warm-container requests instead,
+  // computed server-side in analytics_service._cold_start_stats().
+  function renderColdStartNote(cs) {
+    if (!cs || !cs.cold_count) return '';
+    const total = cs.cold_count + cs.warm_count;
+    const delta = (cs.cold_avg_total_ms != null && cs.warm_avg_total_ms != null)
+      ? cs.cold_avg_total_ms - cs.warm_avg_total_ms : null;
+    return `
+      <div class="perf-cold-note">
+        🥶 ${cs.cold_count} z ${total} zapytań trafiło na dopiero co uruchomiony kontener —
+        średnio ${fmtMs(cs.cold_avg_total_ms)}${cs.warm_avg_total_ms != null ? ` vs ${fmtMs(cs.warm_avg_total_ms)} na rozgrzanym` : ''}
+        ${delta != null && delta > 0 ? ` (+${fmtMs(delta)})` : ''}.
+      </div>
+    `;
+  }
+
   function renderPerf(data) {
     const el = document.getElementById('panel-perf');
     const phaseKeys = data.phase_keys || [];
     const phaseLabels = data.phase_labels || [];
     const series = data.series || [];
+    const coldNote = renderColdStartNote(data.cold_start);
     if (!series.length) {
-      el.innerHTML = '<div class="empty">Brak danych — pojawią się po kilku zapytaniach.</div>';
+      el.innerHTML = coldNote || '<div class="empty">Brak danych — pojawią się po kilku zapytaniach.</div>';
       return;
     }
 
-    const legend = '<div class="perf-legend">' +
+    const legend = coldNote + '<div class="perf-legend">' +
       phaseKeys.map((k, i) => `
         <span class="perf-legend-item">
           <span class="perf-swatch" style="background:${PHASE_COLORS[i % PHASE_COLORS.length]}"></span>
