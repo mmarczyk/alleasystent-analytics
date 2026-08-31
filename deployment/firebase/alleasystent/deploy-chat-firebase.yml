@@ -1,0 +1,107 @@
+name: Deploy AllEasystent Chat UI to Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "firebase.json"
+      - ".github/workflows/deploy-chat-firebase.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Firebase Hosting releases are atomic, but two overlapping runs still race:
+# if the OLDER commit's deploy finishes LAST it becomes the live release, and
+# the site serves older code than what's on main. Same reasoning as
+# deploy-backend.yml — cancel the in-flight run so only the newest commit ever
+# reaches `firebase deploy`.
+concurrency:
+  group: firebase-hosting-chat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Deploy to Firebase Hosting
+    runs-on: ubuntu-latest
+    environment:
+      name: firebase-hosting
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Vendor JS/CSS are downloaded at Docker build time and not committed to
+      # the repo.  Download them here so Firebase Hosting has them too.
+      - name: Download vendor assets
+        run: |
+          mkdir -p web/js/vendor web/css/vendor
+          curl -sSfL "https://cdn.jsdelivr.net/npm/marked@12/marked.min.js" \
+            -o web/js/vendor/marked.min.js
+          curl -sSfL "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" \
+            -o web/js/vendor/highlight.min.js
+          curl -sSfL "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" \
+            -o web/css/vendor/github-dark.min.css
+          curl -sSfL "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" \
+            -o web/css/vendor/github.min.css
+          curl -sSfL "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" \
+            -o web/js/vendor/chart.min.js
+          # chart.umd.min.js embeds "//# sourceMappingURL=chart.umd.min.js.map",
+          # so the matching map must sit alongside it under its original name.
+          curl -sSfL "https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js.map" \
+            -o web/js/vendor/chart.umd.min.js.map
+
+      # Inject Cloud Run backend URL and this deploy's commit SHA into config.js.
+      # Set BACKEND_URL as a GitHub Actions variable (repo → Settings → Variables):
+      #   BACKEND_URL = https://alleasystent-<hash>-ew.a.run.app
+      # Leave empty to keep same-origin mode (all-in-one deployment).
+      - name: Inject backend URL and frontend version
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          echo "window.__BACKEND_URL__ = '${BACKEND_URL}';" > web/config.js
+          echo "window.__FRONTEND_VERSION__ = '${GIT_SHA}';" >> web/config.js
+          sed -i "s/__GIT_SHA__/${GIT_SHA}/" web/sw.js
+
+      # Same credentials as the Cloud Run deploys above: Firebase Hosting is
+      # just another API on the same GCP project, so the existing GCP_SA_KEY /
+      # GCP_PROJECT_ID pair is reused. The service account needs two extra
+      # roles (Firebase Hosting Admin + Service Usage Consumer) — see
+      # deployment/firebase/setup_firebase.sh in the alleasystent-analytics
+      # repo, which grants them for both sites at once.
+      #
+      # This step exports GOOGLE_APPLICATION_CREDENTIALS, which firebase-tools
+      # picks up on its own — no FIREBASE_TOKEN (deprecated) needed.
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # FIREBASE_SITE is the Hosting site ID inside the project (repo variable),
+      # e.g. `alleasystent` → https://alleasystent.web.app. The target is
+      # applied on the fly so no project ID has to be committed to .firebaserc —
+      # it stays in the GCP_PROJECT_ID repo variable, like the Cloud Run
+      # workflows.
+      - name: Deploy to Firebase Hosting
+        id: deploy
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          FIREBASE_SITE: ${{ vars.FIREBASE_SITE }}
+        run: |
+          set -euo pipefail
+          : "${PROJECT_ID:?set the GCP_PROJECT_ID repo variable}"
+          : "${FIREBASE_SITE:?set the FIREBASE_SITE repo variable}"
+          npx --yes firebase-tools@14 target:apply hosting chat "$FIREBASE_SITE" \
+            --project "$PROJECT_ID"
+          npx --yes firebase-tools@14 deploy --only hosting:chat \
+            --project "$PROJECT_ID" \
+            --non-interactive \
+            --message "${GITHUB_SHA}"
+          echo "url=https://${FIREBASE_SITE}.web.app" >> "$GITHUB_OUTPUT"

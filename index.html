@@ -209,7 +209,7 @@
 <!-- ── Dashboard (shown after sign-in) ── -->
 <div id="dashboard" hidden>
   <div class="topbar">
-    <a href="https://mmarczyk.github.io/alleasystent/" class="back-link">← Chat</a>
+    <a href="https://mmarczyk.github.io/alleasystent/" class="back-link" id="chat-link">← Chat</a>
     <h1>📊 Panel Analityczny</h1>
     <span class="user-chip" id="user-chip"></span>
     <span class="topbar-sub" id="last-updated"></span>
@@ -522,6 +522,12 @@
 
   // ── Boot ──────────────────────────────────────────────────────────────────
   function boot() {
+    // The chat UI's origin moves with its hosting (GitHub Pages → Firebase
+    // Hosting), so it is injected at deploy time like the other two values.
+    // The hardcoded href in the markup stays as the fallback.
+    const chatUrl = window.__CHAT_URL__ || '';
+    if (chatUrl) document.getElementById('chat-link').href = chatUrl;
+
     const clientId = window.__GOOGLE_CLIENT_ID__ || '';
     if (!clientId) {
       showAuthError('Panel nieskonfigurowany: brak GOOGLE_CLIENT_ID (config.js).');
