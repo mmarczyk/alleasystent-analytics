@@ -3,7 +3,7 @@
 Static "who's asking what" dashboard for the [AllEasystent](https://github.com/mmarczyk/alleasystent)
 AI assistant: intent distribution, recent queries, LLM-detected tool gaps,
 and on-demand LLM clustering of recent queries. Deployable to GitHub Pages
-or to Firebase Hosting (see [Hosting](#hosting)).
+or to Cloudflare Pages (see [Hosting](#hosting)).
 
 This repo is **frontend only**. The data (Redis-backed query log, LLM
 clustering) is served by the `alleasystent` backend's `/admin/analytics` and
@@ -36,14 +36,14 @@ run side by side during a migration.
 | Workflow | Target | Origin |
 |---|---|---|
 | `.github/workflows/deploy.yml` | GitHub Pages | `https://mmarczyk.github.io/alleasystent-analytics` |
-| `.github/workflows/deploy-firebase.yml` | Firebase Hosting | `https://<FIREBASE_SITE>.web.app` |
+| `.github/workflows/deploy-cloudflare.yml` | Cloudflare Pages | `https://<CLOUDFLARE_PROJECT>.pages.dev` |
 
-The Firebase workflow deploys into the **same GCP project** as the
-`alleasystent` Cloud Run backend, reusing its `GCP_SA_KEY` secret and
-`GCP_PROJECT_ID` variable. Setup — including the matching workflow for the
-chat UI in the `alleasystent` repo, the provisioning script, and the OAuth
-origin / CORS changes the move requires — is documented in
-[`deployment/firebase/README.md`](deployment/firebase/README.md).
+The Cloudflare workflow uploads with `wrangler pages deploy` and touches no
+GCP resources at all — the backend stays on Cloud Run and the dashboard
+reaches it over its public HTTPS URL. Setup — including the matching workflow
+for the chat UI in the `alleasystent` repo and the OAuth origin / CORS changes
+the move requires — is documented in
+[`deployment/cloudflare/README.md`](deployment/cloudflare/README.md).
 
 ## One-time setup
 
@@ -59,9 +59,9 @@ origin / CORS changes the move requires — is documented in
    | `GOOGLE_CLIENT_ID` | The OAuth Client ID from step 1 |
    | `CHAT_URL` | Where the chat UI is hosted — used for the dashboard's "← Chat" link |
 
-   For a Firebase Hosting deploy, add `FIREBASE_SITE` and `GCP_PROJECT_ID`
-   variables plus the `GCP_SA_KEY` secret as well — see
-   [`deployment/firebase/README.md`](deployment/firebase/README.md).
+   For a Cloudflare Pages deploy, add the `CLOUDFLARE_PROJECT` variable plus
+   the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets as well —
+   see [`deployment/cloudflare/README.md`](deployment/cloudflare/README.md).
 
 3. **On the `alleasystent` repo/backend**, configure the matching side:
    - Repo variables: `ANALYTICS_GOOGLE_CLIENT_ID` (same Client ID),
@@ -73,8 +73,8 @@ origin / CORS changes the move requires — is documented in
    - See `deployment/setup_gcp.sh` in that repo for the exact commands.
 
 4. **Enable GitHub Pages** on this repo: Settings → Pages → Source →
-   "GitHub Actions". (Not needed if you deploy to Firebase Hosting instead —
-   run `deployment/firebase/setup_firebase.sh` once instead.)
+   "GitHub Actions". (Not needed if you deploy to Cloudflare Pages instead —
+   create the Pages project in the Cloudflare dashboard once instead.)
 
 5. Push to `main` (or run the "Deploy Analytics Dashboard to GitHub Pages"
    workflow manually) to publish.

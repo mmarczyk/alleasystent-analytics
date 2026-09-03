@@ -1,0 +1,77 @@
+name: Deploy Analytics Dashboard to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "config.js"
+      - "_headers"
+      - ".github/workflows/deploy-cloudflare.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Pages deployments are atomic, but two overlapping runs still race: if the
+# OLDER commit's upload finishes LAST it becomes the live deployment, and the
+# site serves older code than what's on main. Same reasoning as
+# deploy-backend.yml in the alleasystent repo — cancel the in-flight run so
+# only the newest commit ever reaches `wrangler pages deploy`.
+concurrency:
+  group: cloudflare-pages-analytics-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    environment:
+      name: cloudflare-pages
+      url: https://${{ vars.CLOUDFLARE_PROJECT }}.pages.dev
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Inject the alleasystent backend URL, the Google OAuth Client ID used
+      # for Sign In With Google, and the chat UI's address. Set all three as
+      # GitHub Actions repo variables (repo → Settings → Secrets and variables
+      # → Actions → Variables). None is secret — the Client ID is meant to be
+      # public and the URLs are just hostnames — but they must match the
+      # alleasystent backend's ANALYTICS_GOOGLE_CLIENT_ID and deployment, and
+      # ANALYTICS_FRONTEND_URL on that backend must be set to this site's
+      # origin for CORS to allow it. Moving off GitHub Pages CHANGES that
+      # origin — see deployment/cloudflare/README.md.
+      - name: Assemble site
+        env:
+          BACKEND_URL: ${{ vars.BACKEND_URL }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          CHAT_URL: ${{ vars.CHAT_URL }}
+        run: |
+          mkdir -p dist
+          cp index.html _headers dist/
+          {
+            echo "window.__BACKEND_URL__ = '${BACKEND_URL}';"
+            echo "window.__GOOGLE_CLIENT_ID__ = '${GOOGLE_CLIENT_ID}';"
+            echo "window.__CHAT_URL__ = '${CHAT_URL}';"
+          } > dist/config.js
+
+      # CLOUDFLARE_PROJECT is the Pages project name (repo variable), e.g.
+      # `alleasystent-analytics` → https://alleasystent-analytics.pages.dev.
+      # The project has to exist already: create it in the dashboard as a
+      # Direct Upload project, because wrangler cannot create one
+      # non-interactively.
+      #
+      # --branch=main makes this a production deployment rather than a preview
+      # one. --commit-dirty silences the warning about the generated config.js;
+      # the tree is meant to differ from the commit here.
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy dist
+            --project-name=${{ vars.CLOUDFLARE_PROJECT }}
+            --branch=main
+            --commit-dirty=true
