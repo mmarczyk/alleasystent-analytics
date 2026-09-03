@@ -39,10 +39,41 @@ established, so there is no second set of credentials to manage:
 
 | Thing | Value / source | Notes |
 |---|---|---|
-| GCP project | `${{ vars.GCP_PROJECT_ID }}` | Same project as Cloud Run, Artifact Registry, Secret Manager |
+| GCP project | `${{ vars.FIREBASE_PROJECT_ID }}`, falling back to `${{ vars.GCP_PROJECT_ID }}` | Same project as Cloud Run by default; see [Hosting in its own project](#hosting-in-its-own-project) |
 | Credentials | `${{ secrets.GCP_SA_KEY }}` via `google-github-actions/auth@v2` | The step exports `GOOGLE_APPLICATION_CREDENTIALS`; `firebase-tools` reads it directly, so no deprecated `FIREBASE_TOKEN` is involved |
 | Region | n/a | Hosting is a global CDN — unlike Cloud Run's `europe-central2`, there is nothing to pin |
 | Backend URL | `${{ vars.BACKEND_URL }}` | Injected into `config.js` at deploy time, exactly as the Pages workflows do |
+
+## Hosting in its own project
+
+Hosting does not have to live in the Cloud Run project. The frontends are
+static files that reach the backend over its public HTTPS URL, so the only
+thing coupling them is CORS — nothing breaks by splitting them.
+
+That is worth knowing because a Firebase project **is** a GCP project: opening
+the Firebase console and clicking "Create a project" produces a brand-new GCP
+project, not a view onto an existing one, and the two cannot be merged
+afterwards. If Hosting has already landed somewhere separate, keep it there and
+set `FIREBASE_PROJECT_ID` on both repos; leave the variable unset for the
+single-project case and `GCP_PROJECT_ID` is used.
+
+Two things then need doing on the Hosting project, both from `setup_firebase.sh`
+(`FIREBASE_PROJECT_ID=<id>`) or by hand:
+
+- **Grant the deployer service account its two roles there.** A service account
+  created in one project can hold roles in another — Cloud Console → IAM on the
+  Hosting project → Grant access → paste the SA's email → Firebase Hosting
+  Admin + Service Usage Consumer. Nothing about `GCP_SA_KEY` changes.
+- **Link a billing account** if you need more than one Hosting site. A second
+  site requires the Blaze plan, and "Blaze" means exactly "this project has a
+  Cloud Billing account attached". A fresh Firebase project has none, so it
+  starts on Spark with a single default site whose ID equals the project ID.
+  Attaching the billing account the Cloud Run project already uses is enough;
+  Hosting's free tier covers two static sites with room to spare.
+
+Registering a **Web App** in the Firebase console does *not* create a Hosting
+site, and is not needed at all here — an app registration exists to hand you a
+`firebaseConfig` object for the Firebase JS SDK, which neither frontend uses.
 
 The project ID is deliberately **not** committed to a `.firebaserc`. The
 workflow runs `firebase target:apply hosting <target> <site> --project
@@ -80,6 +111,7 @@ On **`alleasystent-analytics`** (Settings → Secrets and variables → Actions)
 | Secret | `GCP_SA_KEY` | Same SA JSON key as on the `alleasystent` repo |
 | Variable | `GCP_PROJECT_ID` | Same project ID as on the `alleasystent` repo |
 | Variable | `FIREBASE_SITE` | `alleasystent-analytics` |
+| Variable | `FIREBASE_PROJECT_ID` | Only when Hosting is in its own project |
 | Variable | `BACKEND_URL` | The Cloud Run URL (already set for the Pages deploy) |
 | Variable | `GOOGLE_CLIENT_ID` | The OAuth Client ID (already set) |
 | Variable | `CHAT_URL` | `https://<CHAT_SITE>.web.app` — the dashboard's "← Chat" link |
@@ -92,6 +124,7 @@ On **`alleasystent`**:
 | Kind | Name | Value |
 |---|---|---|
 | Variable | `FIREBASE_SITE` | `alleasystent` |
+| Variable | `FIREBASE_PROJECT_ID` | Only when Hosting is in its own project |
 
 `GCP_SA_KEY`, `GCP_PROJECT_ID` and `BACKEND_URL` are already set there.
 

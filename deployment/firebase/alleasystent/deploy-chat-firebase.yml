@@ -70,12 +70,13 @@ jobs:
           echo "window.__FRONTEND_VERSION__ = '${GIT_SHA}';" >> web/config.js
           sed -i "s/__GIT_SHA__/${GIT_SHA}/" web/sw.js
 
-      # Same credentials as the Cloud Run deploys above: Firebase Hosting is
-      # just another API on the same GCP project, so the existing GCP_SA_KEY /
-      # GCP_PROJECT_ID pair is reused. The service account needs two extra
-      # roles (Firebase Hosting Admin + Service Usage Consumer) — see
-      # deployment/firebase/setup_firebase.sh in the alleasystent-analytics
-      # repo, which grants them for both sites at once.
+      # Same credentials as the Cloud Run deploys above — the existing
+      # GCP_SA_KEY is reused. The service account needs two extra roles
+      # (Firebase Hosting Admin + Service Usage Consumer) on whichever project
+      # hosts the site; see deployment/firebase/setup_firebase.sh in the
+      # alleasystent-analytics repo, which grants them for both sites at once.
+      # A service account from one project can hold roles in another, so this
+      # works whether or not Hosting lives in this project.
       #
       # This step exports GOOGLE_APPLICATION_CREDENTIALS, which firebase-tools
       # picks up on its own — no FIREBASE_TOKEN (deprecated) needed.
@@ -87,16 +88,20 @@ jobs:
       # FIREBASE_SITE is the Hosting site ID inside the project (repo variable),
       # e.g. `alleasystent` → https://alleasystent.web.app. The target is
       # applied on the fly so no project ID has to be committed to .firebaserc —
-      # it stays in the GCP_PROJECT_ID repo variable, like the Cloud Run
-      # workflows.
+      # it stays in a repo variable, like the Cloud Run workflows.
+      #
+      # Hosting does not have to live in this project: the chat UI is static
+      # files that reach the backend over its public HTTPS URL, so the two are
+      # only coupled by CORS. Set FIREBASE_PROJECT_ID when Hosting sits in its
+      # own project; leave it unset and GCP_PROJECT_ID is used.
       - name: Deploy to Firebase Hosting
         id: deploy
         env:
-          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID || vars.GCP_PROJECT_ID }}
           FIREBASE_SITE: ${{ vars.FIREBASE_SITE }}
         run: |
           set -euo pipefail
-          : "${PROJECT_ID:?set the GCP_PROJECT_ID repo variable}"
+          : "${PROJECT_ID:?set FIREBASE_PROJECT_ID (or GCP_PROJECT_ID) repo variable}"
           : "${FIREBASE_SITE:?set the FIREBASE_SITE repo variable}"
           npx --yes firebase-tools@14 target:apply hosting chat "$FIREBASE_SITE" \
             --project "$PROJECT_ID"
