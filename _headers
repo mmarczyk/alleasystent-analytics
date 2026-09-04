@@ -1,0 +1,6 @@
+# Cloudflare Pages reads this file from the build output and does not serve it.
+# Two files, both regenerated on every deploy — revalidate rather than cache.
+/*
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

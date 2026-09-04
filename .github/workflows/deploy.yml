@@ -39,11 +39,13 @@ jobs:
         env:
           BACKEND_URL: ${{ vars.BACKEND_URL }}
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          CHAT_URL: ${{ vars.CHAT_URL }}
         run: |
           mkdir -p dist
           cp index.html .nojekyll dist/
           echo "window.__BACKEND_URL__ = '${BACKEND_URL}';" > dist/config.js
           echo "window.__GOOGLE_CLIENT_ID__ = '${GOOGLE_CLIENT_ID}';" >> dist/config.js
+          echo "window.__CHAT_URL__ = '${CHAT_URL}';" >> dist/config.js
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
